@@ -1,6 +1,5 @@
 #pragma once
-//频道:https://t.me/colanb113
-// by cola,基于普通触摸库二改,原创,和kpm橘子的内核触摸效果一样,c++风格
+// by volsa,基于普通触摸库二改,原创,和kpm橘子的内核触摸效果一样,c++风格
 
 /*
 触摸检测原理:ls等命令在/sys/class/input/等设备目录,在目录eventX存在时返回"Permission denied"
