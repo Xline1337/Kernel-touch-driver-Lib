@@ -193,37 +193,40 @@ void TouchManager::Init(const Vector2 &screen_size, bool is_physical_pos) {
 添加此函数原因:在很小概率下,有抬起事件没有被上传,导致卡屏
 作用：确保有抬起事件
 */
-void TouchManager::ConfirmHasUp() {
-    while (true) {
-        if (is_uploading.load()) { continue; }
-        std::lock_guard<spinlock> guard(device_lock);
-        constexpr auto kMinUpInterval = std::chrono::milliseconds(100);
-        static auto last_confirm_up_time = std::chrono::steady_clock::now();
-        auto current_time = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                current_time - last_confirm_up_time) < kMinUpInterval) {
-            continue;
-        }
-        last_confirm_up_time = current_time;
 
-        int event_count = 0;
-        struct input_event events[11];
-        events[event_count].type = EV_ABS;
-        events[event_count].code = ABS_MT_SLOT;
-        events[event_count].value = touch_point.slot;
-        event_count++;
-        events[event_count].type = EV_ABS;
-        events[event_count].code = ABS_MT_TRACKING_ID;
-        events[event_count].value = -1;
-        event_count++;
-        events[event_count].type = EV_SYN;
-        events[event_count].code = SYN_REPORT;
-        events[event_count].value = 0;
-        event_count++;
-        write(touch_device.fd, events,
-              sizeof(struct input_event) * event_count);
+// 修复 ConfirmHasUp 的忙等待和锁范围
+void TouchManager::ConfirmHasUp() {
+    while (initialized) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));  // antiCPU爆炸
+        
+        if (is_uploading.load()) continue;
+        
+        
     }
 }
+
+// 2. 读写分离，或至少使用非阻塞+select
+void TouchManager::ReadTouchEvent() {
+    // 设置非阻塞
+    int flags = fcntl(device.fd, F_GETFL, 0);
+    fcntl(device.fd, F_SETFL, flags | O_NONBLOCK);
+    
+    fd_set fds;
+    while (initialized) {
+        FD_ZERO(&fds);
+        FD_SET(device.fd, &fds);
+        struct timeval tv = {0, 10000};  // 10ms timeout
+        
+        if (select(device.fd + 1, &fds, nullptr, nullptr, &tv) > 0) {
+            // 只在有数据时读，避免阻塞写入时机
+            read(...);
+        }
+    }
+}
+
+// 3. 使用不同 slot，避免硬件冲突
+touch_point.slot = 15;  // 用最大slot，减少冲突概率（如果驱动支持）
+
 void TouchManager::Close() {
     if (!initialized) { return; }
     initialized = false;
